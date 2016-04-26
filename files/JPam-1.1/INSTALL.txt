@@ -1,0 +1,54 @@
+Installation
+============
+
+Follow the instructions for your architecture.
+
+Linux x86
+=========
+
+1. Place jpam.jar in your classpath.
+
+2. Place libjpam.so in the java.library.path.
+
+    e.g. Copy libjpam.so to the ${java.home}/lib/i386/client directory.
+
+3. Configure JAAS by copying .java.login.config to the home directory.
+
+4. Copy the net-sf-jpam PAM configuration to /etc/pam.d and alter it to suit your needs.
+
+If you need to use a PAM module not linked in, obtain the source distribution of JPAM and
+build from source. You will need to add the module to the makefile and also configure net-sf-jpam
+to use it.
+
+Linux x86_64
+============
+
+1. Place jpam.jar in your classpath.
+
+2. Place libjpam.so in the java.library.path.
+
+    e.g. Copy libjpam.so to the ${java.home}/lib/amd64/server.
+
+3. Configure JAAS by copying .java.login.config to the home directory.
+
+4. Copy the net-sf-jpam PAM configuration to /etc/pam.d and alter it to suit your needs.
+
+If you need to use a PAM module not linked in, obtain the source distribution of JPAM and
+build from source. You will need to add the module to /lib64/security, add a line to the makefile and also
+configure net-sf-jpam to use it.
+
+
+Mac OS X ppc
+============
+
+1. Place jpam.jar in your classpath.
+
+2. Place libjpam.jnilib in the java.library.path.
+
+    e.g. Copy libjpam.jnilib to Library/Java/Extensions/ in the home directory.
+
+3. Configure JAAS by copying .java.login.config to the home directory.
+
+4. Copy the net-sf-jpam PAM configuration to /etc/pam.d and alter it to suit your needs.
+
+Other architectures are similar.

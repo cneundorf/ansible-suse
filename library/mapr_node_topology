@@ -1,0 +1,66 @@
+#!/usr/bin/env python
+
+import json
+import shlex
+import subprocess
+
+class MapRNodeTopology(object):
+    def __init__(self, module=None, description=""):
+        self.module = module
+        self.syslogging = False
+        self.data = json.loads(module.params['data'])
+        self.nodes = []
+
+    def run(self):
+        cmd1 = "maprcli node list -json"
+        p = subprocess.Popen(shlex.split(cmd1), stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT)
+        datastr = p.stdout.read()
+        p.wait()
+        if p.returncode != 0:
+            self.module.fail_json(msg="Unable to execute maprcli node list")
+        data = json.loads(datastr)
+        id_ = None
+
+        if u'status' in data and data[u'status'] == u'OK':
+            total = data[u'total']
+            for node in data[u'data']:
+                # Check if this is an ip that we match on
+                if isinstance(node['ip'], basestring):
+                    node['ip'] = [node['ip']]
+
+                for ip in node['ip']:
+                    if ip == self.data['hostname']:
+                        id_ = node['id']
+                        break
+                if id_ is None and node['hostname'] == self.data['hostname']:
+                    id_ = node['id']
+                if id_:
+                    break
+
+        if id_ and u'rack' in self.data and self.data[u'rack']:
+            rack = self.data[u'rack']
+            if rack.startswith('/'):
+                rack = '/data{0}'.format(rack)
+            else:
+                rack = '/data/{0}'.format(rack)
+
+            cmd2 = "maprcli node move -serverids {0} -topology {1}".format(id_,
+                rack)
+            p = subprocess.Popen(shlex.split(cmd2), stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT)
+            datastr = p.stdout.read()
+            p.wait()
+
+        self.module.exit_json(changed=True,
+            msg="Successfully set node topology")
+
+def main():
+    module = AnsibleModule(argument_spec=dict(data=dict(required=True)))
+
+    topo = MapRNodeTopology(module)
+    topo.run()
+
+from ansible.module_utils.basic import *
+
+main()

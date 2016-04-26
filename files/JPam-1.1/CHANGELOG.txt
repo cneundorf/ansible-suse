@@ -1,0 +1,70 @@
+$Id: CHANGELOG.txt,v 1.7 2005/06/18 19:18:37 gregluck Exp $
+
+jpam-1.0
+========
+
+<release version="1.0" date="2007-04-16" desc="1.0 release">
+        <!-- Feature Changes  -->
+        <action dev="Greg Luck" type="add">
+            Added support for HP-UX.
+        </action>
+        <action dev="Greg Luck" type="add">
+            Added support for Mac OS X_i386 (32 bit Intel Macs)
+        </action>
+        <action dev="Greg Luck" type="update">
+            Changed Sourceforge status to mature
+        </action>
+        <action dev="Greg Luck" type="update">
+            New documentation and website
+        </action>
+        <action dev="Greg Luck" issue="1440799" type="fix">
+            The jaas implementation always uses the default service name. It should use the specified name.
+        </action>
+        <action dev="Greg Luck" issue="1381572" type="fix">
+            JVM crash when the user account is expired.
+            This issue was produced by the fact that the conversational function
+            "pam_conv" from Pam.c was not aware of message style. In fact, if
+            PAM_ERROR_MSG or other was sent, a free() on an invalid pointer would be
+            produced, leading to Java threads going nuts and therefore the Java
+            program hanging or 'segfaulting'.
+            See also https://bugzilla.redhat.com/bugzilla/show_bug.cgi?id=219916
+        </action>
+        <action dev="Greg Luck" type="update">
+            Rather than coding for the different types of password prompts, we now check for the PAM_PROMPT. This
+            should make JPam deal with many more situations without modification.
+        </action>
+</release>
+
+
+jpam-0.5
+========
+- Tests now pass on Novell Linux Desktop 9. Change the passwd line in /etc/nsswitch.conf to "passwd: files compat"
+from "passwd: compat" 
+- Applied a patch from Ken Huffman. JPam service names are now configurable in the JAAS configuration files, if you
+using JAAS. If using the Pam class directly, you as always add the serviceName as an argument.
+- Added support for Solaris Sparc thanks to Seth Theriault.
+
+jpam-0.4
+========
+- Removed dependency on selinux on Linux systems.
+- Added support for dynamic linking to shared libraries. The makefile is now very simple. Additional PAM modules
+can be used at runtime simply by changing config files. No need to link them in.
+- Concurrency test now passes with 0 errors. JPam's authenticate method is now threadsafe even though PAM is not.
+- Changed SourceForge status to beta.
+- Testing and improvements by David Lutterkort of RedHat.
+
+jpam-0.3
+========
+- Initial public release
+- Added support for Mac OS X
+- Added PAM Radius support using the Free Radius PAM module
+
+jpam-0.2
+===========
+- Added support for Linux x86_64
+- Added SecurId support
+
+jpam-0.1
+===========
+
+- Initial version for Linux x86

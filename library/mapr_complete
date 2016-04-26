@@ -1,0 +1,27 @@
+#!/usr/bin/env python
+
+class MapRComplete(object):
+    def __init__(self, module=None, description=""):
+        self.module = module
+        self.command = module.params["command"]
+
+    def run(self):
+        if self.command == "uninstall":
+            self.module.exit_json(changed=True, msg="Uninstalled successfully",
+                command=self.command)
+        elif self.command == "upgrade":
+            self.module.exit_json(changed=True, msg="Upgraded successfully",
+                command=self.command)
+        else:
+            self.module.exit_json(changed=True, msg="Installed successfully",
+                command=self.command)
+
+def main():
+    module = AnsibleModule(argument_spec=dict(command=dict(default="install")))
+
+    mapr_complete = MapRComplete(module)
+    mapr_complete.run()
+
+from ansible.module_utils.basic import *
+
+main()

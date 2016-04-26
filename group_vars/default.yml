@@ -1,0 +1,25 @@
+---
+#
+# default.yml
+#
+#	Default variables for our MapR playbooks.
+#
+# Copyright 2013, MapR Technologies
+#
+#	NOTE: this scheme WILL NOT WORK, because ansible does
+#	not "merge" structured variables
+#
+
+{
+    "mapr": {
+        "user": "mapr",
+        "group": "mapr",
+        "uid": "5000",
+        "gid": "5000",
+        "repo_url": "http://package.mapr.com/releases",
+        "version": "5.1.0",
+        "home": "/opt/mapr",
+        "clustername": "db-sec.mapr.local"
+    }
+}
+

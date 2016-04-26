@@ -1,0 +1,26 @@
+---
+#
+# Playbook Name:: mapr_top
+#
+# Copyright 2013, MapR Technologies
+#
+# Run with
+#	ansible-playbook <playbook>
+
+- name: Installing MapR
+  hosts: all
+  serial: "{{ serial|default(20) }}"
+
+- include: os_base_suse.yml
+#- include: os_security.yml
+- include: openjdk.yml
+- include: user_mapr.yml
+- include: repos.yml
+##- include: install_packages.yml
+#- include: configure.yml
+#- include: disksetup.yml
+#- include: start_services.yml
+#- include: finalize_cluster.yml
+#- include: database.yml
+#- include: ecosystem.yml
+

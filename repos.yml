@@ -1,0 +1,23 @@
+---
+#
+# Playbook Name:: repos
+#
+# Copyright 2013, MapR Technologies
+#
+# This playbook initializes the repository specifications for # MapR software
+# It MUST be run before attempting to install packages
+#
+
+- name: Configuring package repository
+  hosts: all
+  serial: "{{ serial|default(20) }}"
+
+  tasks:
+  - name: Group by OS family
+    group_by: key={{ ansible_os_family }}
+
+  - debug: msg="MAPR_VERSION={{ version }} MAPR_CORE_REPO_URL={{ repo_core_url }} MAPR_ECO_REPO_URL={{ repo_eco_url }}"
+
+# must be at the same indentation level as the above "- name:" directive
+- include: repos_zypper.yml
+

@@ -1,0 +1,153 @@
+#!/usr/bin/env python
+
+import glob
+import json
+import os
+import re
+import shlex
+import subprocess
+
+pattern = r'\${{{0}}}'
+regex = re.compile(r'\${([A-Z_0-9]*)}')
+
+class MapRStage(object):
+    def __init__(self, module=None, description=""):
+        self.module = module
+        self.syslogging = False
+        self.data = json.loads(module.params['data'])
+        self.templates_dir = module.params['template_dir']
+        self.cmd_log = []
+
+    def exe(self, cmd, shell=False, executable=None):
+        if len(cmd.strip()) == 0:
+            raise Exception("Command empty")
+
+        conf_env = os.environ.copy()
+        for var in self.data["variables"]:
+            if self.data["variables"][var]:
+                conf_env[var] = self.data["variables"][var]
+        self.cmd_log.append(cmd)
+        p = subprocess.Popen(shlex.split(cmd.encode('ascii')),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=shell,
+            executable=executable, env=conf_env)
+        datastr = p.stdout.read()
+        p.wait()
+        return (datastr, p.returncode)
+
+    def copy_from_dfs(self, src, dest, optional=False):
+
+        # globs does not work here since the src files are in hdfs
+        # see if we have any *
+
+        if '*' in src and not os.path.isdir(dest):
+            self.module.fail_json(
+                msg="Unable to copy from dfs on stage2 {0} -> {1},\
+                     {1} is not a directory".format(src, dest))
+        else:
+            # make sure the destination does't exist. copyToLocal doesn't have
+            # a -f option.
+            emsg = ""
+            if os.path.isfile(dest):
+                try:
+                    os.unlink(dest)
+                except OSError as error:
+                    emsg += " {0}".format(error)
+            elif os.path.isdir(dest):
+                # get the name of the files we are trying to copy
+                cmd = "hadoop fs -ls /installer/{0}".format(src)
+                (out, rv) = exe(cmd)
+                if rv == 0:
+                    for line in out.split('\n'):
+                        hdfs_ls_output = line.split(" ")
+                        # XXX we should just take the last element
+                        #     if it has more than 1 or 2 to be more robust
+                        if len(hdfs_ls_output) > 12:
+                            fname = hdfs_ls_output[12].lstrip('/installer/')
+                            dest_fname = os.path.join(dest, fname)
+                            if os.path.isfile(dest_fname):
+                                try:
+                                    os.unlink(dest_fname)
+                                except OSError as error:
+                                    emsg += " {0}".format(error)
+            cmd = "hadoop fs -copyToLocal /installer/{0} {1}".format(src, dest)
+            (out, rv) = self.exe(cmd)
+            if rv != 0 and not optional:
+                self.module.fail_json(
+                    msg = "Unable to copy from dfs on stage2 /installer/{0}->{1}, \
+                           {2}".format(src, dest, out + emsg))
+
+    def run(self):
+        self.data['variables'].update({"TEMPLATES_HOME": self.templates_dir})
+        services = []
+        # configure core services first
+        for service in sorted(self.data['services']):
+            if "core" in self.data["global_services"][service] and \
+                self.data["global_services"][service]["core"]:
+                services.append(service)
+        for service in sorted(self.data['services']):
+            if "core" not in self.data["global_services"][service] or not \
+            self.data["global_services"][service]["core"]:
+                services.append(service)
+        for service in services:
+            if "stage2_files" in self.data["global_services"][service] and \
+                self.data["global_services"][service]["stage2_files"]:
+                for f in self.data["global_services"][service]["stage2_files"]:
+                    if "dest" in f and "src" in f:
+                        for var in regex.findall(f["src"]):
+                            if var in self.data["variables"] and \
+                                self.data["variables"][var]:
+                                f["src"] = re.sub(pattern.format(var),
+                                    self.data["variables"][var], f["src"])
+
+                        for var in regex.findall(f["dest"]):
+                            if var in self.data["variables"] and \
+                                self.data["variables"][var]:
+                                f["dest"] = re.sub(pattern.format(var),
+                                    self.data["variables"][var], f["dest"])
+
+                        try:
+                            self.copy_from_dfs(f["src"], f["dest"],
+                                f.get("optional", False))
+                        except Exception, e:
+                            self.module.fail_json(
+                                msg="Unable to copy stage2 {0} to {1} {2}".format(
+                                    f["src"], f["dest"], str(e)))
+
+            if "stage2_commands" in self.data["global_services"][service] and \
+                self.data["global_services"][service]["stage2_commands"]:
+                for c in self.data["global_services"][service][
+                    "stage2_commands"]:
+                    for var in regex.findall(c):
+                        if var in self.data["variables"] and \
+                            self.data["variables"][var]:
+                            c = re.sub(pattern.format(var),
+                                self.data["variables"][var], c)
+
+                    try:
+                        if c.startswith("bash"):
+                            (out, rv) = self.exe(c)
+                        else:
+                            (out, rv) = self.exe(c, shell=True,
+                                executable="/bin/bash")
+
+                        if rv != 0:
+                            self.module.fail_json(
+                                msg="Unable to execute command: {0}. Returned: {1} {2}".format(
+                                    c, rv, out))
+                    except Exception, e:
+                        self.module.fail_json(
+                            msg="Unable to execute command: {0}".format(str(e)))
+
+        self.module.exit_json(changed=True,
+            msg="Successfully completed stage2 procedures", log=self.cmd_log)
+
+def main():
+    module = AnsibleModule(argument_spec=dict(data=dict(required=True),
+        template_dir=dict(required=True)))
+
+    stage = MapRStage(module)
+    stage.run()
+
+from ansible.module_utils.basic import *
+
+main()

@@ -1,0 +1,39 @@
+---
+#
+# Playbook Name:: os_base_suse
+#
+# Copyright 2013, MapR Technologies
+#
+#       Sub-section of os_base.yml
+#
+
+- name: Configuring OS prerequisites
+  hosts: all
+#  serial: "{{ serial|default(20) }}"
+#  gather_facts: False
+
+  tasks:
+  - command: zypper --non-interactive refresh
+
+  # SUSE distributions need an extra package (nc)
+  # to avoid pulling in the suse-compat package incorrectly
+  - command: /usr/bin/zypper --non-interactive -q  install -n libopenssl1_0_0 iputils ntp sdparm sudo wget
+
+  # Other helpful packages ... but not critical
+  - command: /usr/bin/zypper --non-interactive -q  install -n ethtool 
+    ignore_errors: True
+
+  - sysctl: name=vm.swappiness value=0 state=present ignoreerrors=yes
+
+  - sysctl: name=vm.overcommit_memory value=0 state=present ignoreerrors=yes
+
+  - sysctl: name="net.ipv4.tcp_retries2" value=5 state=present ignoreerrors=yes
+
+  - service: name=ntp state=started enabled=yes
+    when: ansible_distribution_version|version_compare('12.0', '<')
+
+  - service: name=ntpd state=started enabled=yes
+    when: ansible_distribution_version|version_compare('12.0', '>=')
+
+#  - mapr_state: state=2
+

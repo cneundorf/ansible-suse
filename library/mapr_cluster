@@ -1,0 +1,23 @@
+#!/usr/bin/env python
+
+class MapRClusterInfo(object):
+    def __init__(self, module=None, description=""):
+        self.module = module
+
+    def run(self):
+        cid = 'unknown'
+        try:
+            with open('/opt/mapr/conf/clusterid', 'r') as f:
+                cid = f.readline().splitlines()[0]
+        except:
+            cid = 'error'
+        self.module.exit_json(changed=False, cluster_id=cid)
+
+def main():
+    module = AnsibleModule(argument_spec=dict(info=dict(default='info')))
+    m = MapRClusterInfo(module)
+    m.run()
+
+from ansible.module_utils.basic import *
+
+main()

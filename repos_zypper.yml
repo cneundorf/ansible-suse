@@ -1,0 +1,44 @@
+---
+#
+# Playbook Name:: repos_zypper
+#
+# Copyright 2013, MapR Technologies
+#
+# This playbook initializes repo settings for MapR software on SUSE nodes
+#
+
+- name: Configuring package repository
+  hosts: all
+  serial: "{{ serial|default(20) }}"
+  gather_facts: False
+
+  vars:
+    repo_subdir: ""
+
+  tasks:
+  - set_fact: repo_subdir=/suse
+#    when: not repo_full_url
+
+  - file: path=/etc/zypp/repos.d state=directory mode=755 
+
+  - zypper_repository: name=mapr_core repo="{{ repo_core_url }}{{version}}{{ repo_subdir }}" state=present disable_gpg_check=yes
+    ignore_errors: True
+    register: core_result
+
+  - command: rm -f /etc/zypp/repos.d/mapr_core.repo
+    when: core_result | failed
+
+  - fail: msg="Unable to configure MapR Core repository. Confirm that repository target {{ repo_core_url }} is accessible"
+    when: core_result | failed
+    
+  - zypper_repository: name=mapr_ecosystem repo="{{ repo_eco_url }}{{ repo_subdir }}" state=present disable_gpg_check="yes"
+    ignore_errors: True
+    register: eco_result
+
+  - command: rm -f /etc/zypp/repos.d/mapr_ecosystem.repo
+    when: eco_result | failed
+
+  - fail: msg="Unable to configure MapR Ecosystem repository. Confirm that repository target {{ repo_eco_url }} is accessible"
+    when: eco_result | failed
+    
+

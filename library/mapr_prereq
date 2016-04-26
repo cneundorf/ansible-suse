@@ -1,0 +1,556 @@
+#!/usr/bin/env python
+
+import glob
+import math
+import os
+import re
+import shlex
+import socket
+import subprocess
+import urllib2
+
+from socket import getfqdn
+from urlparse import urlparse
+
+# Constants
+MIN_RAM_GB = 6
+WARN_RAM_GB = 8
+
+class MapRPrereq(object):
+    def __init__(self, module=None, description=""):
+        self.module = module
+        self.cpu = module.params['cpu']
+        self.swap = module.params['swap']
+        self.ram = module.params['ram']  # In MB
+        self.disks = module.params['disks'].split(',')
+        self.home = module.params['home']
+        self.devices = json.loads(module.params['devices'])
+        self.mounts = json.loads(module.params['mounts'])
+        self.req_disk = module.params['disk_space']
+        self.syslogging = False
+        self.fqdn = module.params['fqdn']
+        self.distro = module.params['distro']
+        self.distro_ver = module.params['distro_ver']
+        self.core_ver = module.params['core_ver']
+        self.create_admin = module.params["create_admin"]
+        self.admin_user = module.params["admin_user"]
+        self.admin_group = module.params["admin_group"]
+        self.cluster_admin_uid = module.params["admin_uid"]
+        self.cluster_admin_gid = module.params["admin_gid"]
+        self.security = module.params["security"]
+        self.data = json.loads(module.params['data'])
+        self.payload = {"prereqs": {}, "state": "CHECKING", "disks": None}
+        self.failures = False
+        self.warnings = False
+        self.java_pattern = r'"(.*)"'
+        self.external_address = ''
+
+    def run_checks(self):
+        funcs = [self.check_cpu, self.check_ram, self.check_swap,
+            self.check_hostname, self.check_disks, self.check_uid,
+            self.check_gid, self.check_home, self.check_tmp, self.check_opt,
+            self.check_root, self.check_hadoop, self.check_yarn,
+            self.check_supported_os]
+
+        if not self.create_admin:
+            funcs.append(self.check_admin_user)
+
+        for func in funcs:
+            self.payload['prereqs'].update(func())
+
+        self.check_external()
+
+        self.payload.update({'external_address': self.external_address})
+
+        if self.failures:
+            self.module.fail_json(msg="Node does not meet prerequisites",
+                prereq_payload=self.payload)
+        elif self.warnings:
+            self.module.exit_json(changed=False, prereq_payload=self.payload,
+                warnings=True)
+        else:
+            self.module.exit_json(changed=False, prereq_payload=self.payload,
+                warnings=False)
+
+    def check_jre_version(self, loc):
+        if loc:
+            loc = "{0} -version".format(loc)
+        sp = subprocess.Popen(shlex.split(loc), stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT)
+        (out, _) = sp.communicate()
+        rv = sp.wait()
+        if rv != 0:
+            return []
+        else:
+            matches = re.search(self.java_pattern, out)
+            if matches:
+                groups = matches.groups()
+                if groups:
+                    return groups[0].split(".")
+                else:
+                    return []
+            else:
+                return []
+
+    def check_jre(self):
+        rv = {"JDK": {"value": "", "required": "1.7+"}}
+        java_home = os.getenv("JAVA_HOME")
+        possible_locations = ["/Library/Java/Home", "/usr/java/default",
+            "/usr/lib/jvm/default-java", "/usr/lib*/jvm/java-8-openjdk*",
+            "/usr/lib*/jvm/java-8-oracle*", "/usr/lib*/jvm/java-8-sun*",
+            "/usr/lib*/jvm/java-1.8.*", "/usr/lib*/jvm/java-7-openjdk*",
+            "/usr/lib*/jvm/java-7-oracle*", "/usr/lib*/jvm/java-7-sun*",
+            "/usr/lib*/jvm/java-1.7.*"]
+
+        if java_home:
+            possible_locations = [java_home]
+
+        for ploc in possible_locations:
+            plocs = glob.glob(ploc)
+            if plocs:
+                for ploc_ in plocs:
+                    loc = os.path.join(ploc_, "bin/java")
+                    if os.path.exists(loc):
+                        ver = self.check_jre_version(loc)
+                        if ver and len(ver) > 1:
+                            if ver[0] == "1" and int(ver[1]) >= 7:
+                                rv["JDK"].update(
+                                    {"value": ".".join(ver), "state": "VALID"})
+                                return rv
+                            else:
+                                rv["JDK"].update({"value": ".".join(ver),
+                                    "action": "NEEDS_UPDATING",
+                                    "state": "VALID"})
+                        else:
+                            rv["JDK"].update({"value": "{0}".format(ver),
+                                "action": "NEEDS_UPDATING", "state": "VALID"})
+            else:
+                rv["JDK"].update({"value": "Absent", "action": "NEEDS_UPDATING",
+                    "state": "VALID"})
+
+        return rv
+
+    def check_uid(self):
+        rv = {"UID": {"value": "", "required": self.cluster_admin_uid}}
+        import pwd
+        try:
+            usr = pwd.getpwuid(self.cluster_admin_uid)
+            if usr.pw_name == self.admin_user:
+                rv["UID"].update(
+                    {"state": "VALID", "value": str(self.cluster_admin_uid)})
+            else:
+                rv["UID"].update({"state": "ERROR", "value": str(usr.pw_uid)})
+                self.failures = True
+        except:
+            if self.create_admin:
+                try:
+                    usr = pwd.getpwnam(self.admin_user)
+                    if usr.pw_uid == self.cluster_admin_uid:
+                        rv["UID"].update(
+                            {"state": "VALID", "value": self.cluster_admin_uid})
+                    else:
+                        self.failures = True
+                        rv["UID"].update(
+                            {"state": "ERROR", "value": usr.pw_uid})
+                except:
+                    rv["UID"].update({"state": "VALID", "value": "-"})
+            else:
+                self.failures = True
+                rv["UID"].update({"state": "ERROR", "value": "absent"})
+
+        return rv
+
+    def check_gid(self):
+        rv = {"GID": {"value": "", "required": str(self.cluster_admin_gid)}}
+        import grp
+
+        try:
+            group = grp.getgrgid(self.cluster_admin_gid)
+            if group.gr_name == self.admin_group:
+                rv["GID"].update(
+                    {"state": "VALID", "value": str(self.cluster_admin_gid)})
+            else:
+                rv["GID"].update(
+                    {"state": "ERROR", "value": str(group.gr_name)})
+                self.failures = True
+        except:
+            if self.create_admin:
+                rv["GID"].update({"state": "VALID", "value": "-"})
+            else:
+                self.failures = True
+                rv["GID"].update({"state": "ERROR", "value": "absent"})
+
+        return rv
+
+    def check_home(self):
+        rv = {"Home Dir": {"value": "", "required": "present"}}
+
+        from os.path import expanduser
+
+        homedir = "~{0}".format(self.admin_user)
+        if not self.create_admin:
+            homedir = expanduser("~{0}".format(self.admin_user))
+            if os.path.exists(homedir):
+                rv["Home Dir"].update({"state": "VALID", "value": homedir})
+            elif not self.security:
+                rv["Home Dir"].update({"state": "VALID", "value": "optional"})
+            else:
+                self.failures = True
+                rv["Home Dir"].update({"state": "ERROR", "value": "absent"})
+        else:
+            rv["Home Dir"].update({"state": "VALID", "value": homedir})
+
+        return rv
+
+    def check_admin_user(self):
+        required = "present"
+        rv = {"Cluster Admin": {"value": self.admin_user, "required": required,
+            "state": ""}}
+        import pwd
+        try:
+            usr = pwd.getpwnam(self.admin_user)
+            rv["Cluster Admin"].update({"state": "VALID"})
+        except:
+            rv["Cluster Admin"].update({"state": "ERROR", "value": "absent"})
+            self.failures = True
+
+        return rv
+
+    def check_cpu(self):
+        required = "x86_64"
+        rv = {"CPU": {"value": self.cpu, "required": required, "state": ""}}
+        if self.cpu == required:
+            rv["CPU"].update({"state": "VALID"})
+        else:
+            self.failures = True
+            rv["CPU"].update({"state": "ERROR"})
+
+        return rv
+
+    def check_supported_os(self):
+        support_mat = {"4.1.0": {"Ubuntu": {"min": "12.04", "max": "14.04"},
+            "RedHat": {"min": "6.1", "max": "7.0"},
+            "Suse": {"min": "11.3", "max": "12"},
+            "CentOS": {"min": "6.1", "max": "7.0"}},
+            "5.0.0": {"Ubuntu": {"min": "12.04", "max": "14.04"},
+                "RedHat": {"min": "6.1", "max": "7.0"},
+                "Suse": {"min": "11.3", "max": "12"},
+                "CentOS": {"min": "6.1", "max": "7.0"}},
+            "5.1.0": {"Ubuntu": {"min": "12.04", "max": "14.04"},
+                "RedHat": {"min": "6.1", "max": "7.1"},
+                "Suse": {"min": "11.3", "max": "12"},
+                "CentOS": {"min": "6.1", "max": "7.1"}}}
+
+        rv = {"Distribution": {
+            "required": ",".join(support_mat[self.core_ver].keys()),
+            "value": "{0} {1}".format(self.distro, self.distro_ver)}}
+        if self.distro in support_mat[self.core_ver]:
+            minver = support_mat[self.core_ver][self.distro]["min"]
+            minvers = minver.split(".")
+            maxver = support_mat[self.core_ver][self.distro]["max"]
+            maxvers = maxver.split(".")
+            curvers = self.distro_ver.split(".")
+            if len(minvers) > 0 and len(maxvers) > 0:
+                minmajv, minminv = (0, 0)
+                maxmajv, maxminv = (0, 0)
+                if len(minvers) > 1:
+                    minmajv, minminv = minvers[0], minvers[1]
+                else:
+                    minmajv, minminv = minvers[0], "0"
+                if len(maxvers) > 1:
+                    maxmajv, maxminv = maxvers[0], maxvers[1]
+                else:
+                    maxmajv, maxminv = maxvers[0], "0"
+                curmajv, curminv = (0, 0)
+                if len(curvers) > 1:
+                    curmajv, curminv = curvers[0], curvers[1]
+                else:
+                    curmajv, curminv = curvers[0], "0"
+
+                try:
+                    if int(curmajv) >= int(minmajv) and int(curmajv) <= int(
+                        maxmajv):
+                        if int(curmajv) > int(minmajv) and int(curmajv) < int(
+                            maxmajv):
+                            rv["Distribution"].update({"state": "VALID"})
+                            return rv
+                        if (int(curminv) >= int(minminv) and int(
+                            curmajv) == int(minmajv)) or (
+                                int(curminv) <= int(maxminv) and int(
+                            curmajv) == int(maxmajv)):
+                            rv["Distribution"].update({"state": "VALID"})
+                        else:
+                            if int(curminv) < int(minminv):
+                                self.failures = True
+                                state_msg = "ERROR"
+                            elif int(curmajv) == int(maxmajv):
+                                self.warnings = True
+                                state_msg = "WARN"
+                            rv["Distribution"].update({"state": state_msg,
+                                "msg": "Unsupported minor version"})
+                    else:
+                        if int(curmajv) < int(minmajv):
+                            self.failures = True
+                            state_msg = "ERROR"
+                        else:
+                            self.warnings = True
+                            state_msg = "WARN"
+                        rv["Distribution"].update({"state": state_msg,
+                            "msg": "Unsupported major version"})
+                except:
+                    rv["Distribution"].update({"state": "ERROR",
+                        "msg": "Malformed version identifier"})
+                    self.failures = True
+            else:
+                rv["Distribution"].update({"state": "ERROR",
+                    "msg": "Not supported combination of OS and MapR core version"})
+                self.failures = True
+        else:
+            rv["Distribution"].update(
+                {"state": "ERROR", "msg": "OS not supported"})
+            self.failures = True
+
+        return rv
+
+    def check_ram(self):
+        ram_in_gb = math.ceil((int(self.ram) / 1024.0))
+        rv = {"RAM": {"value": "{0} GB".format(ram_in_gb),
+            "required": "{0} GB".format(WARN_RAM_GB)}}
+        if ram_in_gb >= WARN_RAM_GB:
+            rv["RAM"].update({"state": "VALID"})
+        elif ram_in_gb >= MIN_RAM_GB:
+            rv["RAM"].update({"state": "WARN"})
+            self.warnings = True
+        else:
+            self.failures = True
+            rv["RAM"].update({"state": "ERROR"})
+
+        return rv
+
+    def check_swap(self):
+        ram_in_gb = math.ceil((int(self.ram) / 1024.0))
+        swap_in_gb = math.ceil((int(self.swap) / 1024.0))
+        required = 0.1 * ram_in_gb
+        rv = {"SWAP": {"value": "{0} GB".format(swap_in_gb),
+            "required": "{0} GB".format(required)}}
+        if swap_in_gb < required and swap_in_gb < 2.0:
+            rv["SWAP"].update({"state": "WARN"})
+            self.warnings = True
+        else:
+            rv["SWAP"].update({"state": "VALID"})
+
+        return rv
+
+    def check_hostname(self):
+        cmd = "getent hosts {0}".format(getfqdn())
+        p = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT)
+        outdata = p.stdout.read().strip()
+        p.wait()
+        rv = {"Hostname": {"value": outdata, "required": self.fqdn}}
+        if "amazonaws.com" in outdata:
+            rv["Hostname"].update(
+                {"state": "ERROR", "value": "Amazon EC2 external address"})
+        elif self.fqdn in outdata:
+            rv["Hostname"].update({"state": "VALID", "value": self.fqdn})
+        else:
+            self.failures = True
+            rv["Hostname"].update({"state": "ERROR"})
+
+        return rv
+
+    def disk_size(self, size):
+        words = size.split(' ')
+        numbers = words[0].split('.')
+        return "{0} {1}".format(numbers[0], words[1])
+
+    def check_disks(self):
+        devices = []
+        disks = {}
+        disk_list = []
+
+        # Get the list of all mounted devices
+        mounts = [x["device"] for x in self.mounts]
+
+        # Get the list of all devices
+        for dev in self.devices:
+            if "partitions" in self.devices[dev] and self.devices[dev][
+                "partitions"]:
+                for part in self.devices[dev]["partitions"]:
+                    devices.append({"name": part, "size": self.disk_size(
+                        self.devices[dev]["partitions"][part]["size"])})
+            else:
+                devices.append({"name": dev.replace('!', '/'),
+                    "size": self.disk_size(self.devices[dev]["size"])})
+
+        # From the available devices ignore the ones that are already mounted.
+        for device in devices:
+            for mount in self.mounts:
+                available = False
+                selected = False
+                if not mount["device"].endswith(device["name"]):
+                    available = True
+                for disk in self.disks:
+                    if disk.endswith(device["name"]) and available:
+                        selected = True
+                        break
+
+                disks.update({
+                    "/dev/{0}".format(device["name"]): {"selected": selected,
+                        "size": self.disk_size(device["size"])}})
+                if available:
+                    if "/dev/{0}".format(device["name"]) not in disk_list:
+                        disk_list.append("/dev/{0}".format(device["name"]))
+                else:
+                    disks["/dev/{0}".format(device["name"])].update({
+                        "unavailable": "Disk mounted at {0}".format(
+                            mount["mount"])})
+
+        self.payload.update({"disks": disks})
+        rv = {"Disks": {"value": ", ".join(self.disks),
+            "required": ", ".join(disk_list)}}
+        unknown_disks = list(set(sorted(self.disks)) - set(sorted(disk_list)))
+        if unknown_disks:
+            self.warnings = True
+            rv["Disks"].update(
+                {"state": "WARN", "required": ",".join(self.disks)})
+            # Test if none of the disks matched.
+            if not list(set(sorted(self.disks)) - set(sorted(unknown_disks))):
+                self.failures = True
+                rv["Disks"].update({"state": "ERROR"})
+        else:
+            rv["Disks"].update({"state": "VALID"})
+
+        return rv
+
+    def check_disk_space_on(self, directory, min_size_gb=0):
+        cmd = "df -P {0}".format(directory)
+        p = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE)
+        output = p.communicate()[0]
+        device, size, used, available, percent, mountpoint = output.split("\n")[
+            1].split()
+
+        available_in_gb = float(format(int(available) / (1000 * 1000.0), '.1f'))
+        rv = {"Free {0}".format(directory): {
+            "value": "{0} GB".format(available_in_gb),
+            "required": "{0} GB".format(min_size_gb)}}
+        if available_in_gb > min_size_gb:
+            rv["Free {0}".format(directory)].update({"state": "VALID"})
+        else:
+            rv["Free {0}".format(directory)].update({"state": "WARN"})
+            self.warnings = True
+
+        return rv
+
+    def check_tmp(self):
+        return self.check_disk_space_on("/tmp", 10)
+
+    def check_root(self):
+        return self.check_disk_space_on("/", 10)
+
+    def check_opt(self):
+        return self.check_disk_space_on("/opt", 128)
+
+    def check_exec(self, program):
+        rv = {program.title(): {"value": "absent", "required": "absent"}}
+
+        def is_exe(path):
+            return os.path.isfile(path) and os.access(path, os.X_OK)
+
+        found = False
+
+        fpath, fname = os.path.split(program)
+        if fpath:
+            if is_exe(program):
+                found = True
+        else:
+            for path in os.environ['PATH'].split(os.pathsep):
+                path = path.strip('"')
+                exe_file = os.path.join(path, program)
+                if is_exe(exe_file):
+                    found = True
+
+        if found:
+            if "services" in self.data:
+                if self.data["services"] and "installed" in self.data and \
+                        self.data["installed"] == True:
+                    rv[program.title()].update({"state": "VALID"})
+                    return rv
+                elif os.path.isdir("/opt/mapr/roles") and not os.path.exists(
+                    "/opt/mapr/hostid"):
+                    rv[program.title()].update(
+                        {"state": "VALID", "value": "unconfigured"})
+                    return rv
+                else:
+                    self.failures = True
+                    rv[program.title()].update(
+                        {"state": "ERROR", "value": "present"})
+                    return rv
+            else:
+                if os.path.exists("/opt/mapr"):
+                    rv[program.title()].update(
+                        {"state": "WARN", "value": "present"})
+                    self.warnings = True
+                    return rv
+                else:
+                    self.failures = True
+                    rv[program.title()].update(
+                        {"state": "ERROR", "value": "present"})
+                    return rv
+        else:
+            rv[program.title()].update({"state": "VALID"})
+            return rv
+
+    def check_hadoop(self):
+        return self.check_exec("hadoop")
+
+    def check_yarn(self):
+        return self.check_exec("yarn")
+
+    def check_external(self):
+        # Check if we are EC2 or GCE
+        timeout = socket.getdefaulttimeout()
+        urls = ["http://instance-data/latest/meta-data/public-hostname",
+            "http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip"]
+
+        socket.setdefaulttimeout(3)
+        for url in urls:
+            try:
+                socket.gethostbyname(urlparse(url)[1])
+                req = urllib2.Request(url,
+                    headers={"Metadata-Flavor": "Google"})
+                resp = urllib2.urlopen(req)
+                addr = resp.read()
+                if addr and addr.find('<') == -1:
+                    self.external_address = addr.strip()
+                    break
+            except:
+                continue
+        socket.setdefaulttimeout(timeout)
+
+def main():
+    module = AnsibleModule(argument_spec=dict(
+        name=dict(default='prereq', aliases=['prereq'], type='str'),
+        cpu=dict(default='x86_64', type='str'),
+        ram=dict(required=True, type='int'),
+        swap=dict(required=True, type='int'),
+        disks=dict(required=True, type='str'),
+        disk_space=dict(type='int', default=1),
+        home=dict(required=True, type='str'), devices=dict(required=True),
+        mounts=dict(required=True), fqdn=dict(required=True, type='str'),
+        core_ver=dict(required=True, type='str'),
+        distro=dict(required=True, type='str'),
+        distro_ver=dict(required=True, type='str'),
+        create_admin=dict(default=False, type='bool'),
+        admin_user=dict(default='mapr', type='str'),
+        admin_group=dict(default='mapr', type='str'),
+        admin_uid=dict(default=5000, type='int'),
+        admin_gid=dict(default=5000, type='int'),
+        security=dict(default=False, type='bool'), data=dict(required=True)))
+
+    prereq = MapRPrereq(module)
+    prereq.run_checks()
+
+from ansible.module_utils.basic import *
+
+main()

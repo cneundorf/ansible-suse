@@ -1,0 +1,41 @@
+---
+#
+# Playbook Name:: user_mapr
+#
+# Copyright 2013, MapR Technologies
+#
+
+- name: Creating cluster admin account
+  hosts: all
+  serial: "{{ serial|default(20) }}"
+
+  tasks:
+    - name: Create admin group
+      action: "maprgroup.sh MAPR_GROUP={{ cluster_admin_group }} MAPR_GID={{ cluster_admin_gid }}"
+#      when: cluster_admin_create
+
+    - name: Create admin user
+      action: "mapruser.sh MAPR_USER={{ cluster_admin_id }} MAPR_UID={{ cluster_admin_uid }} MAPR_GROUP={{ cluster_admin_group }} MAPR_SHELL=/bin/bash MAPR_PASSWORD={{ cluster_admin_passwd }}"
+#      when: cluster_admin_create
+      #user: name="{{ cluster_admin_id }}" uid="{{ cluster_admin_uid }}" group="{{ cluster_admin_group }}" shell=/bin/bash password="{{ mapr_passwd }}" update_password="on_create"
+
+    # We'd like the user to always source the 
+    # ENV settings from the MapR installation (if present)
+    - stat: path="/home/{{ cluster_admin_id }}/.bashrc"
+      register: cluster_admin_id_bashrc
+      always_run: True
+
+    - name: Update admin shell rc file
+      lineinfile: dest="/home/{{ cluster_admin_id }}/.bashrc" create=yes mode=0644 regexp=".*/conf/env.sh$" line="[[ -f {{ mapr_home }}/conf/env.sh ]] && . {{ mapr_home }}/conf/env.sh"
+      when: cluster_admin_id_bashrc.stat.exists
+
+#    - authorized_key: user="{{ cluster_admin_id }}" key="{{ lookup('file', '/opt/mapr/installer/data/installer_key.pub') }}"
+#      when: security
+
+#    - copy: src=/opt/mapr/installer/data/installer_key dest="/home/{{ cluster_admin_id }}/.ssh/installer_key" owner="{{ cluster_admin_id }}" group="{{ cluster_admin_group }}" mode=600
+#      when: security
+
+#    - copy: src=/opt/mapr/installer/data/installer_key.pub dest="/home/{{ cluster_admin_id }}/.ssh/installer_key.pub" owner="{{ cluster_admin_id }}" group="{{ cluster_admin_group }}" mode=600
+#      when: security
+
+

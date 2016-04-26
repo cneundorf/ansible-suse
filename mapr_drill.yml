@@ -1,0 +1,20 @@
+- name: Installing MapR DRILL
+  hosts: all
+  serial: "{{ serial|default(10) }}"
+
+  tasks:
+
+  - command: /usr/bin/zypper --no-gpg-checks --non-interactive -q install -n '{{ item }}'
+    with_items:
+    - mapr-drill
+
+  - name: Copying JPAM Config
+    copy: src="../files/JPam-1.1" dest="/opt/mapr/pam" backup=yes
+
+  - name: Enabling Security copy drill-override
+    copy: src="../files/drill-override.conf" dest="/opt/mapr/drill/dril-1.6.0/conf" backup=yes
+
+  - name: Configure Drill to use JPAM
+    copy: src="../files/drill-env.sh" dest="/opt/mapr/drill/dril-1.6.0/conf" backup=yes
+ 
+  - name: Restart Drill Service Manually 

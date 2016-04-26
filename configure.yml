@@ -1,0 +1,86 @@
+---
+#
+# Playbook Name:: configure
+#
+# Copyright 2013, MapR Technologies
+#
+#   Very simple implementation.   Calls MapR configure.sh utility
+#   with specifications from the environment.
+#
+
+- name: Configuring MapR services
+  hosts: all
+  serial: "{{ serial|default(20) }}"
+  gather_facts: False
+
+
+
+  vars:
+    #mapr_home: '/opt/mapr'
+    mapr.groups.cldb: 'ip-192-168-2-144.eu-west-1.compute.internal'
+    mapr.groups.zk: 'ip-192-168-2-144.eu-west-1.compute.internal'
+    #mapr.groups.security_master: 'ip-192-168-2-144.eu-west-1.compute.internal'
+    mapr.groups.yarn_master: 'ip-192-168-2-144.eu-west-1.compute.internal'
+
+    cConfFile: "{{ mapr_home }}/conf/mapr-clusters.conf"
+    cldbNodes: "{{ mapr.groups.cldb }}"
+    zkNodes: "{{ mapr.groups.zk }}"
+    secMaster: "{{ mapr.groups.security_master }}"
+    yarnMaster: "{{ mapr.groups.yarn_master }}"
+    security: "{{ mapr.node.security|default('disabled') }}"
+    metrics_host: "{{ metrics_db_host|default('') }}"
+    nfsRoleFile: "{{ mapr_home }}/roles/nfs"
+
+  tasks:
+  - stat: path="{{ cConfFile }}"
+    register: cluster_conf
+    always_run: True
+
+
+  # If the cluster_conf file exists, just regenerate the config
+  - action: "configure_refresh.sh MAPR_HOME={{ mapr_home }}"
+    when: cluster_conf.stat.exists == True
+
+  - debug: msg="CLDB- {{ cldbNodes }}   ZK- {{ zkNodes }}"
+  - debug: msg="CLDB- {{ item.cldb }}   ZK- {{ item.zk }}"
+    with_flattened: 
+      - cldb: "{{ mapr.groups.cldb }}"
+        zk: "{{ mapr.groups.zk }}"
+
+  # We have to retrieve security credentials BEFORE
+  # running configure.sh on all but the "master" node,
+  # but NEVER after the node is configured.
+  - name: Retrieving MapR security credentials
+    action: "retrieve_mapr_security_credentials.sh MAPR_HOME={{ mapr_home }} MAPR_USER={{ cluster_admin_id }} MAPR_GROUP={{ cluster_admin_group }} CLUSTERNAME={{ cluster_name }} SECURITY={{ security }} SEC_MASTER={{ secMaster }}"
+    when: security == 'enabled' and cluster_conf.stat.exists == False
+
+  # Call the library/do_configure.sh wrapper script
+  - action: "do_configure.sh MAPR_HOME={{ mapr_home }} MAPR_USER={{ cluster_admin_id }} MAPR_GROUP={{ cluster_admin_group }} CLUSTERNAME={{ cluster_name }}  CLDBNODES={{ mapr.groups.cldb|join(',') }}  ZKNODES={{ mapr.groups.zk|join(',') }} HISTORYSERVER_HOST={{ HISTORYSERVER_HOST|default('') }} SECURITY={{ security }} YARN={{ True }} LICENSE_MODULES={{ license_modules|join(',') }} LICENSE_TYPE={{ license_type }}"
+    register: do_configure_result
+    when: cluster_conf.stat.exists == False
+    ignore_errors: True
+
+  # If this fails, always remove the clusters.conf file
+  # to that subsequent executions of the playbook will
+  # have a chance at running properly.
+  - action: "shell rm -f {{ cConfFile }}"
+    when: do_configure_result | failed
+  - fail: msg="{{ do_configure_result.msg }}; check {{ mapr_home }}/logs/configure.log"
+    when: do_configure_result|failed
+
+  - stat: path="{{ nfsRoleFile }}"
+    register: nfs_role_file
+    always_run: True
+
+  - stat: path=/mapr
+    register: nfs_mount_dir
+    always_run: True
+    ignore_errors: yes
+
+  - file: path=/mapr state=directory group="root" owner="root"
+    when: nfs_role_file.stat.exists == True and nfs_mount_dir is defined and nfs_mount_dir.stat.exists == False
+
+  - lineinfile: dest="{{ mapr_home }}/conf/mapr_fstab" line="localhost:/mapr /mapr soft,intr,nolock" create=yes state=present mode=0644
+    when: nfs_role_file.stat.exists == True
+
+

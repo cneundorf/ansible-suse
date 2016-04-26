@@ -1,0 +1,12 @@
+...Failed to authenticate for an unknown error: 28
+...cs_password error: User test is not authenticated
+...Call returned with error: 28
+
+Caused by not linking the required library at build time on Linux.
+
+
+Add -f <path to pam module> to the link part of the makefile
+e.g. to add support for -f /lib/security/pam_unix_passwd.so
+gcc -g -export-dynamic -f /lib/security/pam_unix_passwd.so
+
+This issue should be fixed in 0.4. Use these instructions for 0.3   

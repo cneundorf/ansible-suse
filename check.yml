@@ -1,0 +1,21 @@
+---
+#
+# Playbook Name:: check
+#
+# Copyright 2014, MapR Technologies
+#
+# Run with
+#	ansible-playbook <playbook>
+# on a local system, or
+#	ansible-playbook <playbook> -e "cloud_user=ec2-user" -e "cloud_connection=ssh"
+# when accessing remote systems (for example in the Amazon cloud)
+#
+
+- name: Validating prerequisites
+  hosts: all
+  max_fail_percentage: 80
+  serial: "{{ serial|default(20) }}"
+
+  tasks:
+    - name: Verify prerequisites
+      mapr_prereq: cpu={{ ansible_architecture }} disks={{mapr.node.disks|join(",")}} devices='{{ansible_devices|to_json}}' mounts='{{ ansible_mounts|to_json}}' ram={{ansible_memtotal_mb}} swap={{ansible_swaptotal_mb}} home={{mapr_home}} fqdn={{ansible_fqdn}} distro={{ ansible_distribution }} distro_ver={{ ansible_distribution_version }} core_ver={{ version }} create_admin='{{ cluster_admin_create }}' admin_user='{{ cluster_admin_id }}' admin_uid='{{ cluster_admin_uid }}' admin_gid='{{ cluster_admin_gid }}' admin_group='{{ cluster_admin_group }}' data='{{ mapr.node|to_json }}' security='{{ security }}'

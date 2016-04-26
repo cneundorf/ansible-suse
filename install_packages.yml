@@ -1,0 +1,36 @@
+---
+#
+# Playbook Name:: install_packages
+#
+# Copyright 2013, MapR Technologies
+#
+
+- name: Installing MapR Core
+  hosts: all
+  serial: "{{ serial|default(10) }}"
+
+  tasks:
+
+  - command: /usr/bin/zypper --no-gpg-checks --non-interactive -q install -n '{{ item }}'
+    with_items:
+    - mapr-compat-suse
+    - mapr-core
+    - mapr-core-internal
+    - mapr-zookeeper
+    - mapr-cldb
+    - mapr-nodemanager
+    - mapr-resourcemanager
+    - mapr-zookeeper
+    - mapr-zk-internal
+    - mapr-mapreduce2
+    - mapr-kafka
+    - mapr-hbase
+    - mapr-webserver
+    - mapr-httpfs
+    - mapr-fileserver
+    - mapr-spark
+    - mapr-storm
+    when: ansible_os_family == 'Suse'
+
+
+

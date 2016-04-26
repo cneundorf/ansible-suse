@@ -1,0 +1,95 @@
+---
+#
+# Playbook Name:: database
+#
+# Copyright 2014, MapR Technologies
+
+- name: Configuring database
+  hosts: all
+  serial: "{{ serial|default(20) }}"
+
+  tasks:
+  - yum: name=mysql state=present
+    when: ansible_os_family == 'RedHat'
+
+  - apt: name=mysql-client state=present
+    when: ansible_os_family == 'Debian'
+
+  - zypper: name={{ item }} state=present 
+    when: ansible_os_family == 'Suse'
+    with_items:
+    - mysql-client 
+    - python-mysql
+    - mysql-connector-java
+    - mariadb
+
+  - yum: name={{ item }} state=present
+    with_items:
+     - mysql-server
+     - MySQL-python
+    when: ansible_os_family == 'RedHat' and ansible_distribution_major_version == '6'
+
+  - yum: name={{ item }} state=present
+    with_items:
+     - mariadb-server
+     - MySQL-python
+    when: ansible_os_family == 'RedHat' and ansible_distribution_major_version >= '7'
+
+  - zypper: name=mysql state=present
+    when: ansible_os_family == 'Suse' 
+    #when: ansible_os_family == 'Suse'  == True
+
+  - apt: pkg={{ item }} state=present
+    with_items:
+     - mysql-server
+     - python-mysqldb
+    when: ansible_os_family == 'Debian' 
+
+  - command: "sed -i -e '/^bind-address/s/^/#/' /etc/my.cnf"
+    when: ansible_os_family == 'RedHat' and ansible_distribution_major_version == '6'  == True
+
+  - command: "sed -i -e '/^bind-address/s/^/#/' /etc/mysql/my.cnf"
+    when: ansible_os_family == 'Debian'  == True
+
+  - command: "sed -i -e '/^bind-address/s/^/#/' /etc/my.cnf"
+    when: ansible_os_family == 'Suse'  == True
+
+  - command: ldconfig
+    ignore_errors: True
+
+  - service: name=mysqld state=restarted enabled=yes
+    when: ansible_os_family == 'RedHat' and ansible_distribution_major_version == '6'  == True
+
+  # close race condition after installing mariadb and enabling it
+  # systemd is slow to notice new files
+  - shell: which systemctl >/dev/null 2>&1 && systemctl daemon-reload
+    ignore_errors: True
+    when: ansible_os_family == 'RedHat' and ansible_distribution_major_version >= '7'  == True
+
+
+  - service: name=mysql state=restarted enabled=yes
+
+  - mysql_user: user={{ item.name }} password={{ item.password }} priv=*.*:ALL,GRANT host='%' state=present
+    with_items:
+    - { name: 'hive', password: 'hive123' }
+    - { name: 'oozie', password: 'oozie' }
+    - { name: 'hue', password: 'hue' }
+    - { name: 'hive_stats', password: 'hue' }
+
+  - mysql_user: user={{ item.name }} password={{ item.password }} priv=*.*:ALL,GRANT host=localhost state=present
+    with_items:
+    - { name: 'hive', password: 'hive123' }
+    - { name: 'oozie', password: 'oozie' }
+    - { name: 'hue', password: 'hue' }
+    - { name: 'hive_stats', password: 'hue' }
+
+  - mysql_db: name="{{ item }}" state=present
+    with_items: 
+    - hive
+    - oozie
+    - hue
+    - hive_stats
+
+#    when: mapr.node.db.install_mysql == True
+
+

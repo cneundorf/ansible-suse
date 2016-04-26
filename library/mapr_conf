@@ -1,0 +1,250 @@
+#!/usr/bin/env python
+
+import glob
+import json
+import os
+import os.path
+import re
+import shutil
+import shlex
+import socket
+import subprocess
+
+pattern = r'\${{{0}}}'
+regex = re.compile(r'\${([A-Z_0-9]*)}')
+
+class MapRConf(object):
+    def __init__(self, module=None, description=""):
+        self.module = module
+        self.data = json.loads(module.params['data'])
+        self.template_dir = module.params['template_dir']
+        self.cmd_log = []
+
+    def exe(self, cmd, shell=False, executable=None):
+        if len(cmd.strip()) == 0:
+            raise Exception("Command empty")
+        conf_env = os.environ.copy()
+        for var in self.data["variables"]:
+            if self.data["variables"][var]:
+                conf_env[var] = self.data["variables"][var]
+        self.cmd_log.append(cmd)
+        p = subprocess.Popen(shlex.split(cmd.encode('ascii')),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=shell,
+            executable=executable, env=conf_env)
+        datastr = p.stdout.read()
+        p.wait()
+        return (datastr, p.returncode)
+
+    def perform_substitutions(self, service, subs, dest, comment=None,
+        process_name=None):
+        modified = False
+        if subs:
+            if glob.glob(dest):
+                dest = glob.glob(dest)[0]
+            for (sub, val) in subs.iteritems():
+                value = val
+                cmd = ""
+                cont = True
+
+                for var in regex.findall(val):
+                    if var in self.data["variables"] and self.data["variables"][
+                        var]:
+                        value = re.sub(pattern.format(var),
+                            self.data["variables"][var], value)
+                    else:
+                        cont = False
+                        break
+
+                if not cont:
+                    continue
+
+                cmd = "sed -i '\|{0}$|,${{s||{1}|;b}};$q1' {2}".format(sub,
+                    value, dest)
+                (out, rv) = self.exe(cmd)
+                if rv == 0:
+                    modified = True
+                    continue
+
+                if comment:
+                    cmd = "sed -i '\|{0}{1}.*|,${{s||{1}{2}|;b}};$q1' {3}".format(
+                        comment, sub, value, dest)
+                    (out, rv) = self.exe(cmd)
+                    if rv == 0:
+                        modified = True
+                        continue
+
+                cmd = "sed -i '\|{0}.*|,${{s||{0}{1}|;b}};$q1' {2}".format(sub,
+                    value, dest)
+                (out, rv) = self.exe(cmd)
+                if rv == 0:
+                    modified = True
+                    continue
+
+        if dest.startswith('/') and os.path.isfile(dest):
+            data = None
+            with open(dest, 'r') as f:
+                data = f.read()
+
+            if data:
+                for var in self.data["variables"]:
+                    if self.data["variables"][var]:
+                        try:
+                            newdata = re.sub(pattern.format(var),
+                                self.data["variables"][var], data)
+                            if newdata != data:
+                                data = newdata
+                                modified = True
+                        except:
+                            continue
+
+                with open(dest, 'w') as f:
+                    f.write(data)
+
+        if modified and process_name:
+            return process_name
+        return None
+
+    def copy_from_local(self, service, src, dest, optional=False):
+        if not os.path.exists(dest):
+            if not src.startswith("/"):
+                # This is relative to templates directory
+                src = os.path.join(self.template_dir, service, src)
+
+            if dest.startswith("/"):
+                # This is a local destination
+                if dest.endswith("/"):
+                    cmd = "mkdir -p {0}".format(dest)
+                    self.exe(cmd)
+
+                srcs = glob.glob(src)
+                if not srcs:
+                    srcs = [src]
+
+                for s in srcs:
+                    cmd = "cp {0} {1}".format(s, dest)
+                    (out, rv) = self.exe(cmd)
+                    if rv != 0 and optional == False:
+                        self.module.fail_json(
+                            msg = "Unable to execute command:" +
+                                  " {0}. Returned: {1} {2}".format(cmd, rv, out))
+            else:
+                if dest.endswith("/"):
+                    # This is a dfs directory, try to create it
+                    cmd = "hadoop fs -mkdir -p /installer/{0}".format(dest)
+                    self.exe(cmd)
+
+                # This is a local path
+                if glob.glob(src):
+                    srcs = glob.glob(src)
+                else:
+                    srcs = [src]
+
+                for s in srcs:
+                    # we may be competing with other nodes and even -f
+                    # gives errors on collisions
+                    # hdfs put outputs "put: Invalid source or target" when we have
+                    # a write collision. It outputs: put: Could not create FileClient
+                    # when hdfs is down. If we get the Invalid source or target
+                    # we are assuming we have a collision and ignore it (one of them
+                    # will succeed)
+                    cmd = "hadoop fs -put -f {0} /installer/{1}".format(s, dest)
+                    (out, rv) = self.exe(cmd)
+                    if (rv != 0 and optional == False and
+                        not "Invalid source or target" in out):
+                        self.module.fail_json(
+                            msg = "Unable to execute command:" +
+                                  " {0}. Returned: {1} {2}".format(cmd, rv, out))
+
+    def run(self):
+        self.data["variables"].update({"TEMPLATES_HOME": self.template_dir})
+        services = []
+        # configure core services first
+        for service in sorted(self.data['services']):
+            if "core" in self.data["global_services"][service] and \
+                self.data["global_services"][service]["core"]:
+                services.append(service)
+        for service in sorted(self.data['services']):
+            if "core" not in self.data["global_services"][service] or not \
+            self.data["global_services"][service]["core"]:
+                services.append(service)
+        for service in services:
+            process_name = None
+            if "files" in self.data["global_services"][service] and \
+                self.data["global_services"][service]["files"]:
+                for f in self.data["global_services"][service]["files"]:
+                    if "dest" in f and "src" in f:
+                        subs = {}
+                        if "substitutions" in self.data["global_services"][
+                            service] and self.data["global_services"][service][
+                            "substitutions"]:
+                            subs.update(self.data["global_services"][service][
+                                "substitutions"])
+
+                        for var in regex.findall(f["src"]):
+                            if var in self.data["variables"] and \
+                                self.data["variables"][var]:
+                                f["src"] = re.sub(pattern.format(var),
+                                    self.data["variables"][var], f["src"])
+                        for var in regex.findall(f["dest"]):
+                            if var in self.data["variables"] and \
+                                self.data["variables"][var]:
+                                f["dest"] = re.sub(pattern.format(var),
+                                    self.data["variables"][var], f["dest"])
+                        try:
+                            self.copy_from_local(service, f["src"], f["dest"],
+                                f.get("optional", False))
+                        except Exception, e:
+                            self.module.fail_json(
+                                msg="Unable to copy {0} to {1} {2}".format(
+                                    f["src"], f["dest"], str(e)))
+
+                        if not f.get("no_substitution", False):
+                            process_name_ = self.perform_substitutions(service,
+                                subs, f["dest"], f.get("comment", None),
+                                self.data["global_services"][service].get(
+                                    "process_name", None))
+                            if process_name_ and not f.get("no_restart", False):
+                                process_name = process_name_
+
+            if "commands" in self.data["global_services"][service] and \
+                self.data["global_services"][service]["commands"]:
+                for cmdstr in self.data["global_services"][service]["commands"]:
+                    for var in regex.findall(cmdstr):
+                        if var in self.data["variables"] and \
+                            self.data["variables"][var]:
+                            cmdstr = re.sub(pattern.format(var),
+                                self.data["variables"][var], cmdstr)
+                    try:
+                        if cmdstr.startswith("bash"):
+                            (out, rv) = self.exe(cmdstr)
+                        else:
+                            (out, rv) = self.exe(cmdstr, shell=True,
+                                executable="/bin/bash")
+                        if rv != 0:
+                            self.module.fail_json(
+                                msg="Unable to execute command: {0}. Returned: {1} {2}".format(
+                                    cmdstr, rv, out))
+                    except Exception, e:
+                        self.module.fail_json(
+                            msg="Unable to execute command, Exception: {0}".format(
+                                str(e)))
+
+                        # wait to restart everything until the end
+                        # if process_name:
+                        #     restartcmd = "maprcli node services -action restart -name {0} -nodes {1}".format(process_name, socket.gethostname())
+                        #     self.exe(restartcmd, shell=True, executable='/bin/bash')
+
+        self.module.exit_json(changed=True,
+            msg="Successfully completed post install procedures",
+            log=self.cmd_log)
+
+def main():
+    module = AnsibleModule(argument_spec=dict(data=dict(required=True),
+        template_dir=dict(required=True)))
+
+    mapr_conf = MapRConf(module)
+    mapr_conf.run()
+
+from ansible.module_utils.basic import *
+
+main()

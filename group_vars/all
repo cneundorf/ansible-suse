@@ -1,0 +1,36 @@
+---
+#
+# group_vars/all
+#
+#	Default variables for our MapR playbooks.
+#
+# Copyright 2013, MapR Technologies
+#
+#	Notes on defaults
+#
+#	mapr_passwd generated with "echo <password> | openssl passwd -stdin"
+#	mapr_password is the clear-text version of password ... necessary
+#	for some exchanges between nodes during installation
+#
+
+# mapr_debug: True
+
+cluster_admin_id: "mapr"
+cluster_admin_group: "mapr"
+cluster_admin_uid: "5000"
+cluster_admin_gid: "5000"
+cluster_admin_passwd: "mapr123"
+cluster_admin_password: "mapr"
+cluster_name: "db-sec.mapr.local"
+mapr_home: "/opt/mapr"
+mapr_java: "OpenJDK8"
+metrics_db_host: ""
+metrics_db_port: ""
+metrics_db_name: ""
+metrics_db_user: ""
+metrics_db_password: ""
+metrics_db_schema: ""
+repo_core_url: "http://package.mapr.com/releases/"
+repo_eco_url: "http://package.mapr.com/releases/ecosystem-5.x"
+version: "v5.1.0"
+

@@ -1,0 +1,20 @@
+#!/usr/bin/env python
+
+class MapRState(object):
+    def __init__(self, module=None, description=""):
+        self.module = module
+        self.syslogging = False
+        self.state = module.params['state']
+
+        # Send this stage to the callback
+        self.module.exit_json(changed=False, state=self.state)
+
+def main():
+    module = AnsibleModule(
+        argument_spec=dict(state=dict(required=True, type="int")))
+
+    state = MapRState(module)
+
+from ansible.module_utils.basic import *
+
+main()

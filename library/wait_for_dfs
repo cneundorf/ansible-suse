@@ -1,0 +1,45 @@
+#!/usr/bin/env python
+
+import shlex
+import shutil
+import subprocess
+import time
+
+LOG_FILE = "/tmp/wait_for_dfs"
+
+class WaitForDfs(object):
+    def __init__(self, module=None, description=""):
+        self.module = module
+        self.path = module.params['path']
+
+    def run(self):
+        counter = 120
+        while True:
+            cmd = "/usr/bin/hadoop fs -test -e {0}".format(self.path)
+            p = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT)
+            datastr = p.stdout.read()
+            p.wait()
+            if p.returncode == 0:
+                self.module.exit_json(changed=True,
+                    msg="File found {0}".format(self.path))
+            else:
+                with open(LOG_FILE, 'a') as LOGF:
+                    LOGF.write(datastr)
+                if counter > 0:
+                    time.sleep(5)
+                    counter = counter - 1
+                    continue
+                else:
+                    self.module.fail_json(
+                        msg="Unable to find path {0}".format(self.path))
+
+def main():
+    module = AnsibleModule(argument_spec=dict(path=dict(required=True)))
+
+    dfs_wait = WaitForDfs(module)
+    dfs_wait.run()
+
+from ansible.module_utils.basic import *
+
+main()

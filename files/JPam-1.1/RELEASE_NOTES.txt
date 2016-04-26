@@ -1,0 +1,122 @@
+$Id: RELEASE_NOTES.txt,v 1.6 2005/06/15 03:02:36 gregluck Exp $
+
+Release Notes For jpam version 1.1
+==================================
+
+Introduction
+============
+Jpam is a Java-PAM bridge.  PAM, or Pluggable Authentication Modules, is a standard security architecture used
+on Unix, Linux and Mac OS X systems.
+
+JPAM permits the use of PAM authentication services to Java applications running on those platforms.
+These services include:
+
+account, auth, password, session
+
+WARNING
+=======
+
+This version of JPAM will crash if the password is expired. A fix should be fortcoming for this
+in a future version.
+
+JAAS
+====
+Jpam comes with a JAAS implementation. See JpamLoginModule.
+
+Limitations
+===========
+Jpam does not support advanced PAM conversations such as:
+ - change password on first login
+ - change password as expired
+
+Java Requirements
+=================
+Jpam supports JDK1.2, 1.3, 1.4, 1.5 and 1.6 at runtime. Binaries are compiled using JDK1.5. It is recommended to
+build your own from source.
+
+Jpam does not work with JDK1.1. JNI used a different interface prior to JDK1.2.
+
+IBM 1.4.2.0 JVM works but has native libraries in a different place.
+
+Add -native.java.library.path=/usr/lib/jvm/java-ibm/jre/bin (or wherever the IBM JVM is installed )
+to your Java command line.
+
+Java Dependencies
+=================
+
+Apache Commons Logging is required for logging.
+
+
+Operating Systems
+=================
+
+Jpam supports:
+
+1. Linux x86
+2. Linux x86_64, including AMD64
+3. Mac OS X, PPC and Intel
+4. Solaris
+5. HP-UX
+
+
+Thread Safety
+=============
+Authenticate methods in JPam are threadsafe, even though PAM is not.
+
+Installing Additional PAM Modules
+=================================
+JPam will dynamically link to any Pam module in its configuration. No recompilation
+is required.
+
+Documentation
+=============
+See http://jpam.sourceforge.net/documentation for full documentation.
+
+The JavaDoc is in the distribution and also online at
+http://jpam.sourceforge.net/javadoc.
+
+Configuration
+=============
+The distribution contains an example pam.d configuration file
+called net-sf-jpam.
+
+To configure jpam, edit net-sf-jpam and copy it to /etc/pam.d. Follow the instructions in that
+file for the PAM module you configure.
+
+See http://jpam.sourceforge.net/documentation/#configuration for more information.
+
+Building JPam
+=============
+
+To build JPam from sources:
+
+1. As root, install the pam-devel-0.77-66.2 package or similar is installed (Linux systems only)
+2. Create the following users on your machine:
+     user test password test01
+     user test2 password test02
+3. As root, copy src/config/<architecture>/net-sf-jpam* to /etc/pam.d
+4. Copy src/config/<architecture>/.java.login.config to your home directory
+5. Ensure you have a valid JAVA_HOME and ANT_HOME configured with binaries in your PATH
+6. From witing the pam directory, type ant
+
+
+Debugging
+=========
+
+DEBUG
+-----
+If the DEBUG logging level is enabled, jpam will show logging from Java. libjpam.so will
+log messages to the console.
+
+syslogd
+-------
+It is useful to turn on syslogd for PAM logging. Library problems with PAM modules will then
+be logged.
+
+Add "auth.notice" to the /var/log/messages line in /etc/syslog.conf.
+
+e.g.
+
+*.info;mail.none;authpriv.none;cron.none;auth.notice    /var/log/messages
+
+
