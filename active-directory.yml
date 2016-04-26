@@ -9,3 +9,17 @@
     - openldap2-client
     - sssd-ad.x86_64
     - samba
+    - yast2-auth-client
+
+
+  - name: Copy Kerberos Config
+    copy: src="../files/krb5.conf" dest="/etc/krb5.conf" owner=root group=root mode=0644 backup=yes
+  
+  - name: Copy Samba Config
+    copy: src="../files/smb.conf" dest="/etc/samba/smb.conf" owner=root group=root mode=0644 backup=yes
+  
+  - name: Copy SSSD Config 
+    copy: src="../files/sssd.conf" dest="/etc/sssd/sssd.conf" owner=root group=root mode=0600 backup=yes
+
+  - name: Copy DNS Config
+    copy: src="../files/resolv.conf" dest="/etc/resolv.conf" owner=root group=root mode=0644 backup=yes 
