@@ -1,0 +1,24 @@
+ - hosts: all
+   tasks:
+#    - name: generate keys
+#      command: creates=/opt/mapr/conf/cldb.key /tmp/do_configure_genkeys.sh
+#      when: secure_cluster is defined and secure_cluster == True
+#
+    - name: fetch the generated files
+      fetch: src='{{item}}' dest=/tmp/ 
+      with_items:
+        - /opt/mapr/conf/cldb.key
+        - /opt/mapr/conf/maprserverticket
+        - /opt/mapr/conf/ssl_keystore
+        - /opt/mapr/conf/ssl_truststore
+
+    - name: copy cldb.key
+      copy: src=/tmp/cldb.key dest=/opt/mapr/conf mode=0600 owner=mapr group=mapr
+
+    - name: copy maprserverticket, ssl_keystore, and ssl_truststore
+      copy: src='/tmp/{{item}}' dest=/opt/mapr/conf mode=0600 owner=mapr group=mapr
+      with_items:
+        - maprserverticket
+        - ssl_keystore
+        - ssl_truststore
+        - cldb.key

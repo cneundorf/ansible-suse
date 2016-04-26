@@ -1,0 +1,17 @@
+- name: Installing MapR NFS
+  hosts: all
+  serial: "{{ serial|default(10) }}"
+
+  tasks:
+
+  - command: /usr/bin/zypper --no-gpg-checks --non-interactive -q install -n '{{ item }}'
+    with_items:
+    - mapr-nfs
+    - rpcbind
+   
+  - service: name=rpcbind state=started enabled=yes 
+  - name: Copying mapr_fstab
+    copy: src="../files/mapr_fstab" dest="/opt/mapr/conf" backup=yes
+  - command: /opt/mapr/server/configure.sh -R
+
+  

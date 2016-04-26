@@ -23,3 +23,7 @@
 
   - name: Copy DNS Config
     copy: src="../files/resolv.conf" dest="/etc/resolv.conf" owner=root group=root mode=0644 backup=yes 
+
+#  - command  net ads join -U Administrator
+  
+  - service: name=sssd state=restarted enabled=yes
