@@ -1,0 +1,11 @@
+- name: Installing MapR Sqoop
+  hosts: all
+  serial: "{{ serial|default(10) }}"
+
+  tasks:
+
+  - command: /usr/bin/zypper --no-gpg-checks --non-interactive -q install -n '{{ item }}'
+    with_items:
+    - mapr-sqoop
+    - mapr-sqoop2-server
+    - mapr-sqoop2-client

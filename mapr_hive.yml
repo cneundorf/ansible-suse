@@ -1,0 +1,12 @@
+- name: Installing MapR Hive
+  hosts: all
+  serial: "{{ serial|default(10) }}"
+
+  tasks:
+
+  - command: /usr/bin/zypper --no-gpg-checks --non-interactive -q install -n '{{ item }}'
+    with_items:
+    - mapr-hive
+    - mapr-hiveserver2
+    - mapr-hivemetastore
+    - mapr-hivewebhcat
