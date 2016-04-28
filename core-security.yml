@@ -15,10 +15,14 @@
     - name: copy cldb.key
       copy: src=/tmp/cldb.key dest=/opt/mapr/conf mode=0600 owner=mapr group=mapr
 
-    - name: copy maprserverticket, ssl_keystore, and ssl_truststore
+    - name: copy cldb.key maprserverticket, ssl_keystore
       copy: src='/tmp/{{item}}' dest=/opt/mapr/conf mode=0600 owner=mapr group=mapr
       with_items:
         - maprserverticket
         - ssl_keystore
-        - ssl_truststore
         - cldb.key
+
+    - name: copy ssl_truststore
+      copy: src='/tmp/{{item}}' dest=/opt/mapr/conf mode=0444 owner=mapr group=mapr
+      with_items:
+       - ssl_truststore
