@@ -1,0 +1,23 @@
+- name: Installing MapR HTTPFS
+  hosts: all
+  serial: "{{ serial|default(10) }}"
+
+  tasks:
+
+  - command: /usr/bin/zypper --no-gpg-checks --non-interactive -q install -n '{{ item }}'
+    with_items:
+    - mapr-httpfs
+
+  - name: Enable Security HTTPFS
+    copy: src="../files/httpfs_pam_web.xml" dest="/opt/mapr/httpfs/httpfs-1.0/share/hadoop/httpfs/tomcat/webapps/webhdfs/WEB-INF/web.xml" backup=yes
+
+  - name: Enabling PAM copy drill-override
+    copy: src="/opt/mapr/httpfs/httpfs-1.0/share/hadoop/httpfs/tomcat/webapps/webhdfs/META-INF/context.xml.jpamLogin" dest="/opt/mapr/httpfs/httpfs-1.0/share/hadoop/httpfs/tomcat/webapps/webhdfs/META-INF/context.xml" backup=yes
+
+# Disable
+#    - name: Disable  PAM for httpfs
+#    copy: src="/opt/mapr/httpfs/httpfs-1.0/share/hadoop/httpfs/tomcat/webapps/webhdfs/META-INF/context.xml" dest="/opt/mapr/httpfs/httpfs-1.0/share/hadoop/httpfs/tomcat/webapps/webhdfs/META-INF/context.xml.jpamLogin" backup=yes
+
+
+#  - name: Configure Drill to use JPAM
+#    copy: src="../files/drill-env.sh" dest="/opt/mapr/drill/drill-1.6.0/conf/drill-env.sh" backup=yes
