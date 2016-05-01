@@ -1,0 +1,30 @@
+- name: config
+  hosts: all
+  serial: "{{ serial|default(10) }}"
+
+  tasks:
+
+
+  - name: set hive metastore server
+    hadoop_properties: name="hive.metastore.uris" state=present value="thrift://hansdampf:9083" file=/mapr/poc.mapr.local/hive-site.xml
+
+#  - name: set hive metastore server
+#    hadoop_properties: name="hive.metastore.uris" state=present value="thrift://hansdampf:9083" file=/mapr/poc.mapr.local/hive-site.xml
+
+
+#### Kerberos
+
+  - name: set hiveserver2 auth
+    hadoop_properties: name="hive.server2.authentication" state=present value="kerberos" file=/mapr/poc.mapr.local/hive-site.xml
+
+  - name: set hiveserver2 auth kerberos
+    hadoop_properties: name="hive.server2.authentication.kerberos.principal" state=present value="mapr/d1.mapr.local" file=/mapr/poc.mapr.local/hive-site.xml
+
+  - name: set hiveserver2 auth kerberos
+    hadoop_properties: name="hive.server2.authentication.kerberos.keytab" state=present value="/opt/mapr/conf/mapr.keytab" file=/mapr/poc.mapr.local/hive-site.xml
+
+  - name: set hive metastore kerberos
+    hadoop_properties: name="hive.metastore.kerberos.principal" state=present value="mapr/d1.mapr.local" file=/mapr/poc.mapr.local/hive-site.xml
+
+  - name: set hive metastore kerberos
+    hadoop_properties: name="hive.metastore.kerberos.keytab.file" state=present value="/opt/mapr/conf/mapr.keytab" file=/mapr/poc.mapr.local/hive-site.xml

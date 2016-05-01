@@ -69,7 +69,16 @@
 
   - service: name=mysql state=restarted enabled=yes
 
-  - mysql_user: user={{ item.name }} password={{ item.password }} priv=*.*:ALL,GRANT host='%' state=present
+  - mysql_db: name="{{ item.name }}" state=present encoding=utf8 
+    with_items:
+    - { name: 'hive' }
+    - { name: 'oozie' }
+    - { name: 'hue' }
+    - { name: 'hive_stats' }
+
+
+  - mysql_user: user={{ item.name }} password={{ item.password }} priv=*.*:ALL,GRANT host='%' state=present 
+
     with_items:
     - { name: 'hive', password: 'hive123' }
     - { name: 'oozie', password: 'oozie' }
@@ -77,18 +86,13 @@
     - { name: 'hive_stats', password: 'hue' }
 
   - mysql_user: user={{ item.name }} password={{ item.password }} priv=*.*:ALL,GRANT host=localhost state=present
+
     with_items:
     - { name: 'hive', password: 'hive123' }
     - { name: 'oozie', password: 'oozie' }
     - { name: 'hue', password: 'hue' }
     - { name: 'hive_stats', password: 'hue' }
 
-  - mysql_db: name="{{ item }}" state=present
-    with_items: 
-    - hive
-    - oozie
-    - hue
-    - hive_stats
 
 #    when: mapr.node.db.install_mysql == True
 

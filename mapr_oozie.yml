@@ -1,0 +1,10 @@
+- name: Installing Ooozie
+  hosts: all
+  serial: "{{ serial|default(10) }}"
+
+  tasks:
+
+  - command: /usr/bin/zypper --no-gpg-checks --non-interactive -q install -n '{{ item }}'
+    with_items:
+    - mapr-oozie
+    - mapr-oozie-internal
